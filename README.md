@@ -7,6 +7,15 @@ Flutter does not natively support SVGs, and 3rd-party packages to provide SVG su
 Often, however, SVGs are available ahead of time (e.g. provided by a designer) and can be "flattened" into PNGs, which Flutter natively supports. Flatter aims to provide a fast, accurate, and repeatable renders of static SVGs, optimized for this use case.
 
 
+## Installation
+
+Cargo users can run:
+```
+cargo install flatter
+```
+
+More platforms coming soon...
+
 ## Usage
 
 ```
