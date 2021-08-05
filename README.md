@@ -13,3 +13,7 @@ Often, however, SVGs are available ahead of time (e.g. provided by a designer) a
 flatter --input path/to/svgs --output flutter_app/assets/images --scales 1 2 3 4
 ```
 Generate 1x, 2x, 3x, 4x versions of each SVG in `path/to/svgs`, and write them to `flutter_app/assets/images`
+
+## Contributing
+
+Got feedback? Suggestions? Improvements? Issues? Feel free to file an issue or submit a PR and I'll be happy to take a look!
