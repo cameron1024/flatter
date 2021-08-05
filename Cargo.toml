@@ -1,7 +1,13 @@
 [package]
 name = "flatter"
+description = "A command line utility for rendering PNGs from SVGs"
 version = "0.1.0"
 edition = "2018"
+homepage = "https://github.com/cameron1024/flatter"
+repository = "https://github.com/cameron1024/flatter"
+license-file = "LICENSE.md"
+readme = "README.md"
+keywords = ["svg", "png", "render", "flutter"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
