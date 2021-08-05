@@ -14,6 +14,12 @@ Cargo users can run:
 cargo install flatter
 ```
 
+Homebrew users can run:
+```
+brew tap cameron1024/flatter
+brew install flatter
+```
+
 More platforms coming soon...
 
 ## Usage
