@@ -1,17 +1,39 @@
 use std::path::{Path, PathBuf};
 
-use crate::paths::{find_svgs, rename_svg_to_png};
+use log::{error, info, warn};
+
+use crate::{
+    paths::{find_svgs, find_yaml, rename_svg_to_png},
+    yaml::RenderYaml,
+};
 
 #[derive(structopt::StructOpt, Debug)]
 pub struct Args {
-    #[structopt(short, long, parse(from_os_str))]
+    #[structopt(
+        short,
+        long,
+        parse(from_os_str),
+        help = "Path to the input directory, or a single SVG file"
+    )]
     pub output: PathBuf,
 
-    #[structopt(short, long, parse(from_os_str))]
+    #[structopt(
+        short,
+        long,
+        parse(from_os_str),
+        help = "Path to the output directory, or a single PNG file"
+    )]
     pub input: PathBuf,
 
-    #[structopt(short, long, default_value = "1")]
-    pub scales: Vec<u32>,
+    #[structopt(short, long, help = "List of scale factors to render the PNGs at")]
+    pub scales: Option<Vec<u32>>,
+
+    #[structopt(
+        short,
+        long,
+        help = "Number of threads to use for rendering (defaults to the number of logical CPU cores)"
+    )]
+    pub threads: Option<usize>,
 }
 
 #[derive(PartialEq, Eq, Debug)]
@@ -23,14 +45,40 @@ pub struct SvgRenderJob {
 
 impl Args {
     pub fn compute_jobs(&self) -> Vec<SvgRenderJob> {
+        let yaml = if let Ok(Some(yaml)) = find_yaml(self.input.clone()) {
+            info!(
+                "Found config file: {}",
+                self.input.join("render.yaml").to_string_lossy()
+            );
+            yaml
+        } else {
+            info!("No render.yaml found, falling back to defaults");
+            RenderYaml::default()
+        };
+        
+
+        let scales = self.scales.to_owned().unwrap_or(yaml.scales);
+        let threads = self.threads.or(yaml.threads);
+
+        if let Some(t) = threads {
+            std::env::set_var("RAYON_NUM_THREADS", format!("{}", t));
+        };
+        info!(
+            "using {} render threads",
+            match self.threads {
+                Some(threads) => threads,
+                None => num_cpus::get(),
+            }
+        );
+
         let svgs = find_svgs(self.input.to_owned());
         let svg_scales = svgs
             .iter()
-            .flat_map(|svg| self.scales.iter().map(move |scale| (svg, *scale)));
+            .flat_map(|svg| scales.iter().map(move |scale| (svg, *scale)));
 
         if self.input.is_dir() && self.output.is_file() {
-            println!(
-                "WARNING: attempting to write directory to single file:\n\tinput directory: {}\n\toutput file: {}",
+            warn!(
+                "attempting to write directory to single file:\n\tinput directory: {}\n\toutput file: {}",
                 self.input.to_path_buf().to_string_lossy(),
                 self.output.to_path_buf().to_string_lossy(),
             );
@@ -48,8 +96,11 @@ impl Args {
                 1 => {
                     let (input, scale) = svg_scales.first().unwrap();
                     vec![map_single(input, &self.output, *scale)]
-                },
-                _ => panic!("ERROR: attempted to write multiple SVGs to single file:\n\tCurrent args: {:#?}", &self)
+                }
+                _ => {
+                    error!("ERROR: attempted to write multiple SVGs to single file:\n\tCurrent args: {:#?}", &self);
+                    panic!()
+                }
             }
         }
     }
@@ -92,7 +143,8 @@ mod test {
         Args {
             input: test_asset("multiple_svgs"), // directory
             output: test_asset("no_extension"), // file
-            scales: vec![1],
+            scales: Some(vec![1]),
+            threads: None,
         }
         .compute_jobs();
     }
@@ -102,7 +154,8 @@ mod test {
         let jobs = Args {
             input: test_asset("example.svg"),
             output: test_asset("another_file.doc"),
-            scales: vec![1],
+            scales: Some(vec![1]),
+            threads: None,
         }
         .compute_jobs();
         assert_eq!(
@@ -120,7 +173,8 @@ mod test {
         let jobs = Args {
             input: test_asset("example.svg"),
             output: test_asset("multiple_svgs"),
-            scales: vec![1],
+            scales: Some(vec![1]),
+            threads: None,
         }
         .compute_jobs();
         assert_eq!(
@@ -138,7 +192,8 @@ mod test {
         let jobs = Args {
             input: test_asset("multiple_svgs"),
             output: test_asset("empty"),
-            scales: vec![1],
+            scales: Some(vec![1]),
+            threads: None,
         }
         .compute_jobs();
         assert_eq!(
@@ -163,7 +218,8 @@ mod test {
         let jobs = Args {
             input: test_asset("multiple_svgs"),
             output: test_asset("empty"),
-            scales: vec![1, 2],
+            scales: Some(vec![1, 2]),
+            threads: None,
         }
         .compute_jobs();
         assert_eq!(
@@ -191,5 +247,55 @@ mod test {
                 },
             ]
         )
+    }
+
+    #[test]
+    fn compute_jobs_uses_scales_from_yaml_if_args_not_provided() {
+        let jobs = Args {
+            input: test_asset("has_render_yaml"),
+            output: test_asset("empty"),
+            scales: None,
+            threads: None,
+        }
+        .compute_jobs();
+        assert_eq!(
+            jobs,
+            vec![
+                SvgRenderJob {
+                    from: test_asset("has_render_yaml/example.svg"),
+                    to: test_asset("empty/example.png"),
+                    scale: 1
+                },
+                SvgRenderJob {
+                    from: test_asset("has_render_yaml/example.svg"),
+                    to: test_asset("empty/2.0x/example.png"),
+                    scale: 2
+                },
+                SvgRenderJob {
+                    from: test_asset("has_render_yaml/example.svg"),
+                    to: test_asset("empty/3.0x/example.png"),
+                    scale: 3
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn compute_jobs_uses_scales_arg_over_yaml() {
+        let jobs = Args {
+            input: test_asset("has_render_yaml"),
+            output: test_asset("empty"),
+            scales: Some(vec![1]),
+            threads: None,
+        }
+        .compute_jobs();
+        assert_eq!(
+            jobs,
+            vec![SvgRenderJob {
+                from: test_asset("has_render_yaml/example.svg"),
+                to: test_asset("empty/example.png"),
+                scale: 1
+            },]
+        );
     }
 }

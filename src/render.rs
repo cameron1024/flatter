@@ -4,31 +4,34 @@ use std::{
     io::{Read, Write},
 };
 
+use log::info;
 use resvg::ScreenSize;
 use tiny_skia::Pixmap;
 use usvg::{FitTo, Options, SystemFontDB};
 
 use crate::args::SvgRenderJob;
 
-pub fn render_job(job: &SvgRenderJob) -> Result<(), Box<dyn Error>> {
+pub fn render_job(job: &SvgRenderJob, options: &Options) -> Result<(), Box<dyn Error>> {
     let svg_in = File::open(&job.from)?;
     let png_out = File::create(&job.to)?;
-    render(svg_in, png_out, job.scale)
+    info!(
+        "Rendering (Scale: {}x): {}",
+        job.scale,
+        job.from.to_string_lossy(),
+    );
+    render(svg_in, png_out, job.scale, options)
 }
 
 pub fn render(
     mut svg_in: impl Read,
     mut png_out: impl Write,
     scale: u32,
+    options: &Options
 ) -> Result<(), Box<dyn Error>> {
     let mut svg_bytes = vec![];
     svg_in.read_to_end(&mut svg_bytes)?;
 
-    let mut opt = usvg::Options::default();
-    opt.fontdb.load_system_fonts();
-    opt.fontdb.set_generic_families();
-
-    let render_tree = usvg::Tree::from_data(&svg_bytes, &Options::default())?;
+    let render_tree = usvg::Tree::from_data(&svg_bytes, options)?;
 
     let pixmap_size = scale_size(render_tree.svg_node().size.to_screen_size(), scale);
 
@@ -44,6 +47,13 @@ pub fn render(
     png_out.write_all(&png_bytes)?;
 
     Ok(())
+}
+
+pub fn default_options() -> Options {
+    let mut opt = usvg::Options::default();
+    opt.fontdb.load_system_fonts();
+    opt.fontdb.set_generic_families();
+    opt
 }
 
 fn scale_size(size: ScreenSize, scale: u32) -> ScreenSize {
@@ -81,7 +91,7 @@ mod test {
             from: real_svg,
             to: output.clone(),
             scale: 1,
-        })
+        }, &default_options())
         .unwrap();
 
         assert_eq!(
@@ -95,7 +105,7 @@ mod test {
         let svg = read(test_asset("real_data/example.svg")).unwrap();
         let mut buffers = (0..10).map(|_| vec![]);
         for buffer in &mut buffers {
-            render(&svg[..], buffer, 1).unwrap();
+            render(&svg[..], buffer, 1, &default_options()).unwrap();
         }
         assert!(all_equal(buffers.collect()));
     }
