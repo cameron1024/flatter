@@ -1,7 +1,44 @@
 use core::panic;
-use std::path::{Path, PathBuf};
+use std::{
+    error::Error,
+    fs::File,
+    path::{Path, PathBuf},
+};
 
+use crate::yaml::RenderYaml;
 
+const YAML_NAME: &str = "render.yaml";
+
+pub fn find_yaml(root: PathBuf) -> Result<Option<RenderYaml>, Box<dyn Error>> {
+    if root.is_file() {
+        find_yaml_from_file(root)
+    } else {
+        let file = root.read_dir()?.find(|result| match result {
+            Ok(entry) => entry.file_name().to_string_lossy() == YAML_NAME && entry.path().is_file(),
+            Err(_) => false,
+        });
+
+        match file {
+            Some(Ok(entry)) => find_yaml_from_file(entry.path()),
+            Some(Err(e)) => Err(Box::new(e)),
+            None => Ok(None),
+        }
+    }
+}
+
+// assumes pathbuf is a file
+fn find_yaml_from_file(file: PathBuf) -> Result<Option<RenderYaml>, Box<dyn Error>> {
+    if let Some(name) = file.file_name() {
+        if name.to_string_lossy() == YAML_NAME {
+            let yaml = serde_yaml::from_reader::<File, RenderYaml>(File::open(file)?)?;
+            Ok(Some(yaml))
+        } else {
+            Ok(None)
+        }
+    } else {
+        Ok(None)
+    }
+}
 
 pub fn find_svgs(root: PathBuf) -> Vec<PathBuf> {
     if root.exists() {
@@ -88,4 +125,50 @@ mod test {
         );
     }
 
+    #[test]
+    fn can_read_render_yaml_from_exact_path() {
+        let path = test_asset("has_render_yaml/render.yaml");
+        let yaml = find_yaml_from_file(path).unwrap().unwrap();
+        assert_eq!(
+            yaml,
+            RenderYaml {
+                scales: vec![1, 2, 3],
+                threads: None,
+            }
+        );
+    }
+
+    #[test]
+    fn ignores_non_yaml_files() {
+        let path = test_asset("has_render_yaml/not_yaml_or_svg.doc");
+        assert!(matches!(find_yaml_from_file(path), Ok(None)));
+
+        let path = test_asset("has_render_yaml/doesnt_exist");
+        assert!(matches!(find_yaml_from_file(path), Ok(None)));
+    }
+
+    #[test]
+    fn finds_yamls_in_dir() {
+        let path = test_asset("has_render_yaml");
+        let yaml = find_yaml(path).unwrap().unwrap();
+        assert_eq!(
+            yaml,
+            RenderYaml {
+                scales: vec![1, 2, 3],
+                threads: None,
+            }
+        );
+    }
+
+    #[test]
+    fn ignores_dirs_with_no_yaml() {
+        let path = test_asset("empty");
+        assert!(matches!(find_yaml(path), Ok(None)));
+    }
+
+    #[test]
+    fn handles_bad_yaml() {
+        let path = test_asset("bad_render_yaml");
+        assert!(matches!(find_yaml(path), Err(_)));
+    }
 }

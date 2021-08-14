@@ -1,39 +1,51 @@
-use std::{error::Error, fs::{canonicalize, create_dir_all}, time::SystemTime};
+#![warn(clippy::print_stdout, clippy::print_stdout)]
+
+use std::{error::Error, fs::{canonicalize, create_dir_all}, time::Instant};
 
 use args::{Args, SvgRenderJob};
+use flexi_logger::LoggerHandle;
+use log::info;
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use render::render_job;
 use structopt::StructOpt;
 
-mod args;
-mod paths;
+use crate::render::default_options;
 
-mod render;
+pub mod args;
+pub mod paths;
+pub mod render;
+pub mod yaml;
 
 #[cfg(test)]
 mod test;
 
 fn main() {
-    let start = SystemTime::now();
+    let _ = init_log();
+    let start = Instant::now();
     let args = Args::from_args();
+
+    let options = default_options();
     let jobs = args.compute_jobs();
     jobs.iter().map(ensure_directory).for_each(Result::unwrap);
     jobs.par_iter().for_each(|job| {
-        println!(
-            "Rendering (Scale: {}x): {}",
-            job.scale,
-            job.from.to_string_lossy(),
-        );
-        render_job(job).unwrap();
+        render_job(job, &options).unwrap();
     });
-    let end = SystemTime::now();
-    let duration = end.duration_since(start).unwrap();
-    println!(
+
+    info!(
         "Done - rendered {} PNGs to: {}\n(Time taken: {}ms)",
         jobs.len(),
         canonicalize(args.output).unwrap().to_string_lossy(),
-        duration.as_millis()
+        start.elapsed().as_millis()
     )
+}
+
+// need to keep handle alive to maintain logger
+#[must_use]
+fn init_log() -> LoggerHandle {
+    flexi_logger::Logger::try_with_str("info")
+        .unwrap()
+        .start()
+        .unwrap()
 }
 
 fn ensure_directory(job: &SvgRenderJob) -> Result<(), Box<dyn Error>> {
